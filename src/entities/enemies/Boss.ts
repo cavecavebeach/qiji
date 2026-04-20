@@ -26,9 +26,9 @@ export class Boss extends Enemy {
     this.onSummon = callback;
   }
 
-  update(time: number, delta: number, units?: Unit[]) {
+  update(time: number, delta: number, units?: Unit[], inViewport: boolean = true) {
     if (this.isDead) return;
-    super.update(time, delta, units);
+    super.update(time, delta, units, inViewport);
 
     this.updateRage(units || []);
     this.checkSummon(time);

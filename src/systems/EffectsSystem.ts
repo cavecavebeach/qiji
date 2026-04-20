@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS } from '../utils/Constants';
+import { ObjectPoolManager, PoolableParticle, PoolableText, PoolableEffect } from '../utils/GamePools';
 
 export class EffectsSystem {
   private scene: Phaser.Scene;
@@ -9,6 +10,10 @@ export class EffectsSystem {
   private lastKillTime: number;
   private slowMotionFactor: number;
   private isSlowMotion: boolean;
+  private poolManager: ObjectPoolManager;
+  private activeParticles: Set<PoolableParticle> = new Set();
+  private activeTexts: Set<PoolableText> = new Set();
+  private activeEffects: Set<PoolableEffect> = new Set();
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -18,6 +23,7 @@ export class EffectsSystem {
     this.lastKillTime = 0;
     this.slowMotionFactor = 1;
     this.isSlowMotion = false;
+    this.poolManager = new ObjectPoolManager(scene);
   }
 
   update(time: number, delta: number) {
@@ -68,11 +74,12 @@ export class EffectsSystem {
       const px = x + Math.cos(angle) * 10;
       const py = y + Math.sin(angle) * 10;
       
-      const particle = this.scene.add.circle(px, py, 3 * scale, color, 0.9);
+      const particle = this.poolManager.getParticlePool().acquireParticle(px, py, 3 * scale, color, 0.9);
       particle.setDepth(150);
+      this.activeParticles.add(particle);
       
       this.scene.tweens.add({
-        targets: particle,
+        targets: particle.getGameObject(),
         x: px + Math.cos(angle) * speed,
         y: py + Math.sin(angle) * speed,
         alpha: 0,
@@ -80,22 +87,26 @@ export class EffectsSystem {
         scaleY: 0.2,
         duration: 300 + Math.random() * 200,
         ease: 'Power2',
-        onComplete: () => particle.destroy(),
+        onComplete: () => {
+          this.releaseParticle(particle);
+        },
       });
     }
 
-    const ring = this.scene.add.circle(x, y, 10, color, 0);
-    ring.setStrokeStyle(3, color, 0.8);
+    const ring = this.poolManager.getEffectPool().acquireRing(x, y, 10, color, 0, color, 0.8, 3);
     ring.setDepth(149);
+    this.activeEffects.add(ring);
     
     this.scene.tweens.add({
-      targets: ring,
+      targets: ring.getGameObject(),
       scaleX: 3 * scale,
       scaleY: 3 * scale,
       alpha: 0,
       duration: 300,
       ease: 'Power2',
-      onComplete: () => ring.destroy(),
+      onComplete: () => {
+        this.releaseEffect(ring);
+      },
     });
   }
 
@@ -103,15 +114,19 @@ export class EffectsSystem {
     const particleCount = size === 'small' ? 12 : size === 'medium' ? 20 : 30;
     const explosionScale = size === 'small' ? 1 : size === 'medium' ? 1.5 : 2;
     
-    const flash = this.scene.add.circle(x, y, 30 * explosionScale, 0xffffff, 0.8);
+    const flash = this.poolManager.getParticlePool().acquireParticle(x, y, 30 * explosionScale, 0xffffff, 0.8);
     flash.setDepth(200);
+    this.activeParticles.add(flash);
+    
     this.scene.tweens.add({
-      targets: flash,
+      targets: flash.getGameObject(),
       alpha: 0,
       scaleX: 2,
       scaleY: 2,
       duration: 150,
-      onComplete: () => flash.destroy(),
+      onComplete: () => {
+        this.releaseParticle(flash);
+      },
     });
 
     for (let i = 0; i < particleCount; i++) {
@@ -120,15 +135,16 @@ export class EffectsSystem {
       const particleColor = Math.random() > 0.5 ? color : 0xffaa00;
       const size = 4 + Math.random() * 6;
       
-      const particle = this.scene.add.circle(x, y, size, particleColor, 1);
+      const particle = this.poolManager.getParticlePool().acquireParticle(x, y, size, particleColor, 1);
       particle.setDepth(199);
+      this.activeParticles.add(particle);
       
       const gravity = 200;
       const vx = Math.cos(angle) * speed;
       const vy = Math.sin(angle) * speed;
       
       this.scene.tweens.add({
-        targets: particle,
+        targets: particle.getGameObject(),
         x: x + vx * 0.5,
         y: y + vy * 0.5 + gravity * 0.25,
         alpha: 0,
@@ -136,27 +152,46 @@ export class EffectsSystem {
         scaleY: 0.3,
         duration: 400 + Math.random() * 300,
         ease: 'Power2',
-        onComplete: () => particle.destroy(),
+        onComplete: () => {
+          this.releaseParticle(particle);
+        },
       });
     }
 
-    const shockwave = this.scene.add.circle(x, y, 20, 0xffffff, 0);
-    shockwave.setStrokeStyle(4, color, 0.9);
+    const shockwave = this.poolManager.getEffectPool().acquireShockwave(x, y, 20, color, 0.9, 4);
     shockwave.setDepth(198);
+    this.activeEffects.add(shockwave);
     
     this.scene.tweens.add({
-      targets: shockwave,
+      targets: shockwave.getGameObject(),
       scaleX: 5 * explosionScale,
       scaleY: 5 * explosionScale,
       alpha: 0,
       duration: 400,
       ease: 'Power2',
-      onComplete: () => shockwave.destroy(),
+      onComplete: () => {
+        this.releaseEffect(shockwave);
+      },
     });
 
     this.triggerSlowMotion(0.3, 200);
     this.screenShake(4, 120);
     this.addCombo();
+  }
+
+  private releaseParticle(particle: PoolableParticle): void {
+    this.activeParticles.delete(particle);
+    this.poolManager.getParticlePool().releaseParticle(particle);
+  }
+
+  private releaseText(text: PoolableText): void {
+    this.activeTexts.delete(text);
+    this.poolManager.getTextPool().releaseText(text);
+  }
+
+  private releaseEffect(effect: PoolableEffect): void {
+    this.activeEffects.delete(effect);
+    this.poolManager.getEffectPool().releaseEffect(effect);
   }
 
   triggerSlowMotion(targetScale: number = 0.3, duration: number = 200) {
@@ -239,26 +274,20 @@ export class EffectsSystem {
   }
 
   createSlashEffect(x: number, y: number, angle: number = 0, color: number = 0xffffff) {
-    const slash = this.scene.add.graphics();
+    const slash = this.poolManager.getEffectPool().acquireSlash(x, y, angle, 40, 3, color, 0.9);
     slash.setDepth(160);
-    
-    const length = 40;
-    const width = 3;
-    
-    slash.lineStyle(width, color, 0.9);
-    slash.beginPath();
-    slash.moveTo(x - Math.cos(angle) * length, y - Math.sin(angle) * length);
-    slash.lineTo(x + Math.cos(angle) * length, y + Math.sin(angle) * length);
-    slash.strokePath();
+    this.activeEffects.add(slash);
 
     this.scene.tweens.add({
-      targets: slash,
+      targets: slash.getGameObject(),
       alpha: 0,
       scaleX: 1.5,
       scaleY: 1.5,
       duration: 150,
       ease: 'Power2',
-      onComplete: () => slash.destroy(),
+      onComplete: () => {
+        this.releaseEffect(slash);
+      },
     });
   }
 
@@ -266,23 +295,27 @@ export class EffectsSystem {
     this.screenShake(5, 150);
     this.createImpactEffect(x, y, 0xffd700, 1.5);
     
-    const critText = this.scene.add.text(x, y - 40, '暴击!', {
+    const critText = this.poolManager.getTextPool().acquireText(x, y - 40, '暴击!', {
       fontSize: '24px',
       color: '#FFD700',
       fontFamily: 'serif',
       stroke: '#8B0000',
       strokeThickness: 3,
-    }).setOrigin(0.5).setDepth(250);
+    });
+    critText.setDepth(250);
+    this.activeTexts.add(critText);
 
     this.scene.tweens.add({
-      targets: critText,
+      targets: critText.getGameObject(),
       y: y - 80,
       scaleX: 1.3,
       scaleY: 1.3,
       alpha: 0,
       duration: 600,
       ease: 'Power2',
-      onComplete: () => critText.destroy(),
+      onComplete: () => {
+        this.releaseText(critText);
+      },
     });
   }
 
@@ -358,5 +391,16 @@ export class EffectsSystem {
       alpha: { from: 0, to: 1 },
       duration: 200,
     });
+  }
+
+  getPoolStats(): { particles: { pooled: number; active: number }; texts: { pooled: number; active: number }; effects: { pooled: number; active: number } } {
+    return this.poolManager.getStats();
+  }
+
+  destroy(): void {
+    this.poolManager.destroy();
+    this.activeParticles.clear();
+    this.activeTexts.clear();
+    this.activeEffects.clear();
   }
 }

@@ -29,9 +29,11 @@ export class Enemy extends Entity {
     this.state = 'moving';
   }
 
-  update(time: number, delta: number, units?: Unit[]) {
+  update(time: number, delta: number, units?: Unit[], inViewport: boolean = true) {
     if (this.isDead) return;
     super.update(time, delta);
+
+    this.updateVisuals(inViewport);
 
     if (this.state === 'moving') {
       this.moveLeft(delta);

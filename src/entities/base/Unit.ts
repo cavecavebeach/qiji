@@ -28,9 +28,11 @@ export class Unit extends Entity {
     this.state = 'moving';
   }
 
-  update(time: number, delta: number, enemies?: Enemy[], allies?: Unit[]) {
+  update(time: number, delta: number, enemies?: Enemy[], allies?: Unit[], inViewport: boolean = true) {
     if (this.isDead) return;
     super.update(time, delta);
+
+    this.updateVisuals(inViewport);
 
     if (enemies) this.checkProtection(allies || []);
 

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { COLORS, GAME_WIDTH, GAME_HEIGHT, FLAG_X, FLAG_Y, FLAG_HP, HALF_FIELD_X, BATTLEFIELD_TOP, BATTLEFIELD_BOTTOM } from '../utils/Constants';
+import { COLORS, GAME_WIDTH, GAME_HEIGHT, FLAG_X, FLAG_Y, FLAG_HP, HALF_FIELD_X, BATTLEFIELD_TOP, BATTLEFIELD_BOTTOM, BATTLEFIELD_LEFT, BATTLEFIELD_RIGHT } from '../utils/Constants';
 import { LEVEL_CONFIGS } from '../data/levels';
 import { UNIT_CONFIGS } from '../data/units';
 import { Unit } from '../entities/base/Unit';
@@ -16,7 +16,11 @@ import { WaveSystem } from '../systems/WaveSystem';
 import { SpawnSystem } from '../systems/SpawnSystem';
 import { EffectsSystem } from '../systems/EffectsSystem';
 import { HUD } from '../ui/HUD';
+import { PerformanceMonitor } from '../utils/PerformanceMonitor';
 import type { UnitType, BattleResult } from '../types';
+
+const MAX_ENTITIES = 80;
+const VIEWPORT_MARGIN = 50;
 
 export class BattleScene extends Phaser.Scene {
   units: Unit[];
@@ -27,6 +31,7 @@ export class BattleScene extends Phaser.Scene {
   private spawnSystem!: SpawnSystem;
   private effectsSystem!: EffectsSystem;
   private hud!: HUD;
+  private performanceMonitor!: PerformanceMonitor;
   private flagHp: number;
   private levelId: number;
   private battleOver: boolean;
@@ -43,6 +48,22 @@ export class BattleScene extends Phaser.Scene {
   private pauseOverlay: Phaser.GameObjects.Container | null;
   private multiLane: boolean;
   private laneRivers: Phaser.GameObjects.Graphics[];
+  private viewportBounds: { left: number; right: number; top: number; bottom: number };
+
+  getEntityCount(): number {
+    return this.units.length + this.enemies.length;
+  }
+
+  canSpawnEntity(): boolean {
+    return this.getEntityCount() < MAX_ENTITIES;
+  }
+
+  isEntityInViewport(x: number, y: number): boolean {
+    return x >= this.viewportBounds.left && 
+           x <= this.viewportBounds.right && 
+           y >= this.viewportBounds.top && 
+           y <= this.viewportBounds.bottom;
+  }
 
   constructor() {
     super({ key: 'BattleScene' });
@@ -60,6 +81,12 @@ export class BattleScene extends Phaser.Scene {
     this.pauseOverlay = null;
     this.multiLane = false;
     this.laneRivers = [];
+    this.viewportBounds = {
+      left: BATTLEFIELD_LEFT - VIEWPORT_MARGIN,
+      right: BATTLEFIELD_RIGHT + VIEWPORT_MARGIN,
+      top: BATTLEFIELD_TOP - VIEWPORT_MARGIN,
+      bottom: BATTLEFIELD_BOTTOM + VIEWPORT_MARGIN,
+    };
   }
 
   create(data: { levelId: number }) {
@@ -122,6 +149,12 @@ export class BattleScene extends Phaser.Scene {
     this.hud.updateWave(this.waveSystem.getState());
 
     this.effectsSystem = new EffectsSystem(this);
+
+    this.performanceMonitor = new PerformanceMonitor(this, {
+      enabled: true,
+      showPanel: false,
+      fpsWarningThreshold: 30,
+    });
 
     this.startFlagGuard();
 
@@ -556,6 +589,10 @@ export class BattleScene extends Phaser.Scene {
   }
 
   private spawnUnit(type: UnitType, x: number, y: number) {
+    if (!this.canSpawnEntity()) {
+      return null;
+    }
+
     let unit: Unit;
     switch (type) {
       case 'shieldBearer':
@@ -577,6 +614,7 @@ export class BattleScene extends Phaser.Scene {
         unit = new ShieldBearer(this, x, y);
     }
     this.units.push(unit);
+    return unit;
   }
 
   update(time: number, delta: number) {
@@ -587,6 +625,15 @@ export class BattleScene extends Phaser.Scene {
 
     this.combatSystem.update(time, scaledDelta);
     this.effectsSystem.update(time, delta);
+
+    if (this.performanceMonitor.isEnabled()) {
+      this.performanceMonitor.update(time, delta);
+      this.performanceMonitor.setEntityCount(this.units.length + this.enemies.length);
+      const tweens = (this.tweens as unknown as { getAllTweens?: () => unknown[] }).getAllTweens;
+      if (tweens) {
+        this.performanceMonitor.setTweenCount(tweens.call(this.tweens).length);
+      }
+    }
 
     this.checkFlagDamage();
     this.collectRewards();
@@ -691,6 +738,10 @@ export class BattleScene extends Phaser.Scene {
     if (this.flagGuardTimer) {
       this.flagGuardTimer.remove();
       this.flagGuardTimer = null;
+    }
+
+    if (this.performanceMonitor) {
+      this.performanceMonitor.destroy();
     }
 
     if (victory) {

@@ -17,7 +17,7 @@ export class FirearmsUnit extends Unit {
     this.aimInterrupted = false;
   }
 
-  update(time: number, delta: number, enemies?: Enemy[], allies?: Unit[]) {
+  update(time: number, delta: number, enemies?: Enemy[], allies?: Unit[], inViewport: boolean = true) {
     if (this.isDead) return;
 
     if (this.isAiming) {
@@ -25,7 +25,7 @@ export class FirearmsUnit extends Unit {
       return;
     }
 
-    super.update(time, delta, enemies, allies);
+    super.update(time, delta, enemies, allies, inViewport);
   }
 
   private updateAim(time: number) {
